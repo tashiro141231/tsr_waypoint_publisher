@@ -21,6 +21,20 @@
 
 #include "waypoint_publisher.h"
 
+//======= static member =========//
+ros::Subscriber WaypointPublisher::sub_wheel_odom_;
+ros::Subscriber WaypointPublisher::sub_signal_decision_;
+ros::Subscriber WaypointPublisher::sub_judge_human_;
+ros::Subscriber WaypointPublisher::sub_real_human_pose_;
+ros::Publisher WaypointPublisher::pub_cmd_;
+ros::Publisher WaypointPublisher::pub_nav_goal_;
+ros::Publisher WaypointPublisher::pub_signal_decision_;
+ros::Publisher WaypointPublisher::pub_search_human_;
+ros::Publisher WaypointPublisher::pub_transfer_;
+ros::Publisher WaypointPublisher::pub_waypoint_;
+ros::Publisher WaypointPublisher::pub_human_pose_;
+
+
 //-------------- Callback --------------//
 /**
  * @fn 信号認識後のスタートフラグの受け取り
@@ -79,22 +93,21 @@ void WaypointPublisher::odomReadCallback(const nav_msgs::Odometry::ConstPtr& a_w
 }
 //----------- end of callback  -------------//
 
-//----------- Other function -------------//
+
 /**
- * @fn
- * @brief 初期化 
+ * @fn Keu入力でwaypointを次へ進める
+ * @brief 別スレッドでキーボードを監視
  * @param 
- * @return None
+ * @return  None
  */
-void WaypointPublisher::Initialize(){
-    wp_skip_flag_ = false;
-    g_forward_wp_flag_ = false;
-    g_signal_go_flag_ = false;
-    g_found_human_flag_ = false;
-    g_pause_flag_ = false;
-    g_judge_result_flag_ = false;
-    g_judge_receive_flag_ = false;
-    g_search_publish_flag_ = false;
+void WaypointPublisher::ForwardWaypointByKeyboardInterrupt() { 
+    while (1) {
+        getchar();
+        g_forward_wp_flag_ = true; //wp更新要求
+        g_pause_flag_ = false;
+        ROS_INFO("Keyboard interupt.");
+        ROS_INFO("Current waypoint will be skipped.");
+    }
 }
 
 /**
@@ -120,21 +133,6 @@ geometry_msgs::PoseArray ConvertToWayPointMsg(const std::vector<Pos> g_wp_array)
     return g_wp_array_msg;
 }
 
-/**
- * @fn Keu入力でwaypointを次へ進める
- * @brief 別スレッドでキーボードを監視
- * @param 
- * @return  None
- */
-void WaypointPublisher::ForwardWaypointByKeyboardInterrupt() { 
-    while (1) {
-        getchar();
-        g_forward_wp_flag_ = true; //wp更新要求
-        g_pause_flag_ = false;
-        ROS_INFO("Keyboard interupt.");
-        ROS_INFO("Current waypoint will be skipped.");
-    }
-}
 
 /**
  * @fn 指定されたファイルをwaypointとして読み込み
@@ -168,3 +166,28 @@ int WaypointPublisher::ReadWaypointFile(const std::string & file_name) {
     return 1;
 }
 
+/**
+ * @fn スタート地点やスロープなどの制御に必要な場所のwp
+ * @brief wp_arrayから取得
+ * @param None
+ * @return None 
+ */
+void WaypointPublisher::SetSpecificPointIndex() {
+    double min_dist_pos = 10000;
+    double buff_distance;
+
+    for(auto wp_itr = wp_array_.begin(); wp_itr != wp_array_.end(); wp_itr++) {
+        Vertex2D wp_pos = {wp_itr->x, wp_itr->y};
+        // Start地点
+        buff_distance = distance_vertex(start_pos_, wp_pos);
+        if(buff_distance <= min_dist_pos) {
+            start_wp_index_ = std::distance(wp_array_.begin(), wp_itr);
+        }
+
+        // とりあえず
+        buff_distance = distance_vertex(end_pos_, wp_pos);
+        if(buff_distance <= min_dist_pos) {
+            end_wp_index_ = std::distance(wp_array_.begin(), wp_itr);
+        }
+    }
+}

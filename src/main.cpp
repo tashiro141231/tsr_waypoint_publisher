@@ -4,7 +4,6 @@
 WaypointPublisher wp;
 
 int main(int argc, char **argv){
-    wp.Initialize();
     
     // 引数が正しくない場合は使い方を表示
     if (argc < 3) {
@@ -23,6 +22,16 @@ int main(int argc, char **argv){
 
     ros::init(argc, argv, "waypoint_publisher");
     ros::NodeHandle n;
+    
+    wp.Initialize();
+    tf::TransformListener li1(ros::Duration(1));
+    tf::TransformListener li2(ros::Duration(1));
+    tf::TransformListener li3(ros::Duration(1));
+    wp.tf_listener1_ = &li1;
+    wp.tf_listener2_ = &li2;
+    wp.tf_listener3_ = &li3;
+    // wp.SetSpecificPointIndex();
+   
 
     while(ros::ok()){
         ROS_INFO("hello hello");

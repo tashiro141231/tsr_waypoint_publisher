@@ -1,7 +1,7 @@
 #include <ros/ros.h>
+#include <thread>
+#include <cstdlib>
 #include "waypoint_publisher.h"
-
-WaypointPublisher wp;
 
 int main(int argc, char **argv){
     
@@ -13,9 +13,9 @@ int main(int argc, char **argv){
         return -1;
     }
     if(argc > 3){
-        wp.set_wp_skip_num(std::string(argv[3])); //4つ目の要素を入れたら、ここまでで終了してくれる
-        if(wp.get_wp_skip_num() == "skip"){
-            wp.set_wp_skip_flag(true);
+        WaypointPublisher::set_wp_skip_num(std::string(argv[3])); //4つ目の要素を入れたら、ここまでで終了してくれる
+        if(WaypointPublisher::get_wp_skip_num() == "skip"){
+            WaypointPublisher::set_wp_skip_flag(true);
             std::cout<<"SKIP FLAG TRUE"<<std::endl;
         }
     }
@@ -23,18 +23,30 @@ int main(int argc, char **argv){
     ros::init(argc, argv, "waypoint_publisher");
     ros::NodeHandle n;
     
-    wp.Initialize();
+    std::string waypoint_file = argv[2];
+    WaypointPublisher::Initialize();
     tf::TransformListener li1(ros::Duration(1));
     tf::TransformListener li2(ros::Duration(1));
     tf::TransformListener li3(ros::Duration(1));
-    wp.tf_listener1_ = &li1;
-    wp.tf_listener2_ = &li2;
-    wp.tf_listener3_ = &li3;
+    WaypointPublisher::tf_listener1_ = &li1;
+    WaypointPublisher::tf_listener2_ = &li2;
+    WaypointPublisher::tf_listener3_ = &li3;
+
+    // Keyboardによるwpの更新関数を別スレッドで回しておく
+    std::thread key_interupt(WaypointPublisher::ForwardWaypointByKeyboardInterrupt);
+    //Waypointの読み込み
+    if(WaypointPublisher::ReadWaypointFile( waypoint_file ) == -1) {
+        ROS_INFO("Fatal error: Could not read waypoint file.");
+        std::exit(0);
+    }
     // wp.SetSpecificPointIndex();
    
+   getchar();
+   WaypointPublisher::PublishCurrentWaypoint();
 
-    while(ros::ok()){
-        ROS_INFO("hello hello");
+    while(ros::ok() && WaypointPublisher::getGoalFlag()){
+        WaypointPublisher::PublishWaypointArray();
+        WaypointPublisher::MainProc();
     }
   
     return 0;

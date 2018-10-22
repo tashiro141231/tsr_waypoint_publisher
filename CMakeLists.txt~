@@ -10,8 +10,6 @@ find_package(catkin REQUIRED COMPONENTS
   actionlib
   geometry_msgs
   move_base_msgs
-  actionlib_msgs
-  visualization_msgs
   roscpp
   sensor_msgs
   std_msgs
@@ -138,7 +136,7 @@ include_directories(
 ## Declare a C++ executable
 add_executable(tsr_waypoint_publisher
   src/main.cpp
-  src/waypoint_publisher.cpp
+#  src/waypoint_publisher.cpp
 )
 
 ## Add cmake target dependencies of the executable

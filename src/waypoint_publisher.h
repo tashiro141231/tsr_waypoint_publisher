@@ -4,6 +4,7 @@
 //#include <geometry_msgs/PoseWithCovariance.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <geometry_msgs/PoseArray.h>
+#include <geometry_msgs/Point.h>
 #include <move_base_msgs/MoveBaseAction.h>
 #include <tf/transform_listener.h>
 #include <tf/tf.h>
@@ -60,6 +61,7 @@ class WaypointPublisher {
         goal_tolerance_ = 1.5;
         is_vel_restricted_ = false;
         is_next_stop_ = false;
+        is_line_requested_ = false;
 
         ros::NodeHandle node;
         sub_wheel_odom_ = node.subscribe("odom", 200, WaypointPublisher::odomReadCallback);
@@ -76,6 +78,8 @@ class WaypointPublisher {
         pub_human_pose_ = node.advertise<geometry_msgs::PoseStamped>("human_position", 1);
         pub_wp_text_ = node.advertise<visualization_msgs::MarkerArray>("waypoints_number", 100);
         pub_audio_req_ = node.advertise<std_msgs::String>("audio_request", 1);
+        pub_line_control_req_ = node.advertise<std_msgs::String>("line_control", 1);
+        pub_line_points_ = node.advertise<geometry_msgs::PoseArray>("line_points", 1);
     }
 
     static void MainProc();
@@ -84,6 +88,7 @@ class WaypointPublisher {
     static void searchCallback2(geometry_msgs::PoseStamped human_pose);
     static void judgeCallback(std_msgs::Bool judge_result_flag);
     static void odomReadCallback(nav_msgs::Odometry a_wheel_odom);
+    static void LineControlStateCallback(std_msgs::String data);
     static geometry_msgs::PoseArray ConvertToWayPointMsg(std::vector<Pos> g_wp_array);
     static int ReadWaypointFile(std::string file_name);
     static void ForwardWaypointByKeyboardInterrupt(); 
@@ -102,6 +107,8 @@ class WaypointPublisher {
     static void PublishWaypointForApproach();
     static bool JudgeApproach();
     static bool ApproachStateCheck();
+    static bool LineStateCheck(geometry_msgs::Point end_line_point);
+    static geometry_msgs::PoseArray StoreLinePoints();
     static int HumanCheck(geometry_msgs::PoseStamped human_pose);
     
     static void SetMovebaseRecovBehavior(bool value); 
@@ -147,6 +154,7 @@ class WaypointPublisher {
     static bool is_robot_reach_end_;
     static bool is_vel_restricted_;
     static bool is_robot_approaching_;
+    static bool is_line_requested_;
     static visualization_msgs::MarkerArray g_wp_array_visualize_;
 
     // 地図中の制御をかけるべき座標
@@ -158,6 +166,7 @@ class WaypointPublisher {
     static ros::Subscriber sub_signal_decision_;
     static ros::Subscriber sub_judge_human_;
     static ros::Subscriber sub_real_human_pose_;
+    static ros::Subscriber sub_line_control_state_;
     static ros::Publisher pub_cmd_;
     static ros::Publisher pub_nav_goal_;
     static ros::Publisher pub_signal_decision_;
@@ -168,6 +177,8 @@ class WaypointPublisher {
     static ros::Publisher pub_goal_cancel_;
     static ros::Publisher pub_wp_text_;
     static ros::Publisher pub_audio_req_;
+    static ros::Publisher pub_line_control_req_;
+    static ros::Publisher pub_line_points_;
 
     static geometry_msgs::PoseStamped g_human_direction_; //caffe_serverから受け取るvelodyne座標上のreal_human_pose 
     static geometry_msgs::PoseStamped g_waypoint_direction_;  //wpの位置算出用(探索対象者用)

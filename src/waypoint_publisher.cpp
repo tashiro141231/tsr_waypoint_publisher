@@ -41,6 +41,8 @@ ros::Publisher WaypointPublisher::pub_human_pose_;
 ros::Publisher WaypointPublisher::pub_goal_cancel_;
 ros::Publisher WaypointPublisher::pub_wp_text_;
 ros::Publisher WaypointPublisher::pub_audio_req_;
+ros::Publisher WaypointPublisher::pub_line_control_req_;
+ros::Publisher WaypointPublisher::pub_line_points_;
  
 bool WaypointPublisher::is_next_stop_;
 bool WaypointPublisher::g_signal_go_flag_;   //信号認識の結果
@@ -52,9 +54,10 @@ bool WaypointPublisher::g_entered_search_area_;//探索エリア内いるか
 bool WaypointPublisher::search_human_flag_;
 bool WaypointPublisher::wp_skip_flag_;      // waypointのスキップフラグ
 bool WaypointPublisher::is_vel_restricted_;
-
 bool WaypointPublisher::is_robot_approaching_;
 bool WaypointPublisher::is_robot_reach_end_;
+bool WaypointPublisher::is_line_requested_;
+
 ros::Time WaypointPublisher::wp_clock_start_;
 ros::Time WaypointPublisher::wp_repub_clock_;
 int WaypointPublisher::wp_timeout_;
@@ -136,6 +139,27 @@ void WaypointPublisher::odomReadCallback(nav_msgs::Odometry a_wheel_odom){
     g_wheel_odom_msgs_.push_back(a_wheel_odom);
     // std::cout << "receive human_judge_result" << std::endl;
 }
+
+
+/**
+ * @fn
+ * @brief spur_line_plannerの状態を取得
+ * @param 
+ * @return None
+ */
+void WaypointPublisher::LineControlStateCallback(std_msgs::String data) {
+    if(data.data == "Done") {
+        //Waypoint を次にすすめる（次のwaypointはstopフラグがついているため停止し、キー入力を待つ）
+        IncrementWaypoint();
+        std_msgs::String req;
+        req.data = "End";
+        pub_line_control_req_.publish(req);
+    }
+    if(data.data == "Running") {
+        ;
+    }
+}
+
 //==========  end of Callback  ==========//
 
 /*
@@ -394,7 +418,7 @@ void WaypointPublisher::PublishWayPointNumText() {
 void WaypointPublisher::SetSpecificPoint(std::string stop_file, std::string line_file) {
     std::ifstream wp_info;
     std::string reading_line;
-    
+
     for(int i = 0; i < 2; i++) {
         if(i == 0) {
             wp_info.open(stop_file, std::ios::in);
@@ -411,10 +435,11 @@ void WaypointPublisher::SetSpecificPoint(std::string stop_file, std::string line
             Pos tmp;
             std::stringstream line_ss(reading_line);
             line_ss >> tmp.x >> tmp.y >> tmp.yaw;
-            std::cout << tmp.x << " " << tmp.y << " " << tmp.yaw << std::endl;
+            std::cout << "Special point " << tmp.x << " " << tmp.y << " " << tmp.yaw << std::endl;
             if(i == 0)  stop_list_.push_back(tmp);
             if(i == 1)  line_list_.push_back(tmp);
         }
+        wp_info.close();
    }
 
     // stop_pos1_ = SetPosXY( -23.223, -29.2705);
@@ -611,14 +636,18 @@ bool WaypointPublisher::StopCheck() {
  * @return 
  */
 bool WaypointPublisher::LineCheck() {
-    if(wp_array_[wp_index_].in_line && !wp_array_[wp_index_-1].in_line) {
-        CallLineSetting();
+    // if(wp_array_[wp_index_].in_line && !wp_array_[wp_index_-1].in_line) {
+    //     CallLineSetting();
+    //     return true;
+    // }
+    // else if(!wp_array_[wp_index_].in_line && wp_array_[wp_index_-1].in_line) {
+    //     CallDefaultSetting();
+    // }
+    //if(g_found_human_flag_) return false;
+
+    if(wp_array_[wp_index_].in_line && wp_array_[wp_index_+1].in_line) {
         return true;
     }
-    else if(!wp_array_[wp_index_].in_line && wp_array_[wp_index_-1].in_line) {
-        CallDefaultSetting();
-    }
-    //if(g_found_human_flag_) return false;
     return false;
 }
 
@@ -629,8 +658,27 @@ bool WaypointPublisher::LineCheck() {
  * @param 
  * @return 
  */
+geometry_msgs::PoseArray WaypointPublisher::StoreLinePoints() {
+    geometry_msgs::PoseArray ret;
+    geometry_msgs::Pose buff;
+
+    for(int i = 0; i < 2; i++) {
+        buff.position.x = wp_array_[wp_index_ + i].x;
+        buff.position.y = wp_array_[wp_index_ + i].y;
+        ret.poses.push_back(buff);
+    }
+    return ret;
+}
+
+/**
+ * @fn 
+ * @brief  
+ * @param
+ * @param 
+ * @return 
+ */
 void WaypointPublisher::CallLineSetting() {
-    ROS_INFO("======================= Revoverry enable ================================");
+    ROS_INFO("======================= Revoverry disable ================================");
     SetMovebaseRecovBehavior(false);
     SetMovebaseSimtime(1.5);
 }
@@ -668,9 +716,9 @@ void WaypointPublisher::IncrementWaypoint(){
             is_next_stop_ = false;
             goal_tolerance_ = 1.5;
         }
-        if(wp_array_[wp_index_].in_line) {
-            goal_tolerance_ = 0.3;
-        }
+        // if(wp_array_[wp_index_].in_line) {
+        //     goal_tolerance_ = 0.3;
+        // }
     }
     else {
         is_robot_reach_end_ = true;
@@ -784,6 +832,36 @@ bool WaypointPublisher::ApproachStateCheck() {
     return false;
 }
 
+/**
+ * @fn 
+ * @brief  
+ * @param
+ * @param 
+ * @return 
+ */
+bool WaypointPublisher::LineStateCheck(geometry_msgs::Point end_line_point) {
+    tf::StampedTransform transform;
+    Pos ep = SetPosXY(end_line_point.x , end_line_point.y);
+
+    try {
+        ros::Time now = ros::Time::now();
+        tf_listener1_->waitForTransform("map", "base_link", now, ros::Duration(1.0));
+        tf_listener1_->lookupTransform("map", "base_link", now, transform);
+    }
+    catch (tf::TransformException ex) {
+        ROS_ERROR("%s", ex.what());
+    }
+    now_pos_.x = transform.getOrigin().x();
+    now_pos_.y = transform.getOrigin().y();
+    double distance = distance_point(now_pos_, ep);
+    std::cout << "line end to :" << distance << " [m]" << std::endl;
+    if(distance < 0.5) {
+        return true;
+    }
+
+    return false;
+}
+
 // #<{(|*
 //  * @fn 
 //  * @brief  
@@ -885,7 +963,8 @@ void WaypointPublisher::MainProc() {
     // ・A waypoint's stop flag is true.
     // ・Receive not empty human data from caffe_server.
     // ・While approaching.
-    if(!stop_flag && !g_found_human_flag_ && !is_robot_approaching_) {
+    // ・While line mode(give contorol to spur_line_navigation)
+    if(!stop_flag && !g_found_human_flag_ && !is_robot_approaching_ && !line_mode) {
         tf::StampedTransform transform;
         try {
             ros::Time now = ros::Time::now();
@@ -933,6 +1012,37 @@ void WaypointPublisher::MainProc() {
         PublishAudioRequest(req);
         actionlib_msgs::GoalID cancel;
         pub_goal_cancel_.publish(cancel);
+    
+    }
+
+    // Line mode.
+    // Give contorl to line_spur_nav.
+    // Do not publish waypoint while giving control.
+    // Line waypoint has to be a pair. Be carefull when you set in the wp_file.
+    if(line_mode) {
+        geometry_msgs::PoseArray points = StoreLinePoints();
+        
+        ROS_INFO("------------- Line Mode -------------");
+
+        if(!is_line_requested_) {
+            ROS_INFO("------------- Request line publish -------------");
+            std_msgs::String req;
+            req.data = "go";
+            pub_line_control_req_.publish(req);
+            req.data = "line";
+            pub_audio_req_.publish(req);
+            pub_line_points_.publish(points);
+            is_line_requested_ = true;
+            actionlib_msgs::GoalID cancel;
+            pub_goal_cancel_.publish(cancel);
+        }
+        if(LineStateCheck(points.poses[1].position)) {
+            IncrementWaypoint();
+            std_msgs::String req;
+            req.data = "finish";
+            pub_line_control_req_.publish(req);
+            is_line_requested_ = true;
+        }
     }
 
     // Judge approach or not.
